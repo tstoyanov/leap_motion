@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<launch>
+<node pkg="leap_motion" type="leap_hands" name="leap_hands" output="screen"/>
+
+<node name="rviz" pkg="rviz" type="rviz" args="-d $(find leap_motion)/launch/hands.rviz"/>
+
+<node pkg="tf" type="static_transform_publisher" name="leap_link"
+      args="0.30 0.0 0.12 0 0 0 /world /leap_optical_frame 50" />
+
+</launch>

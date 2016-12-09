@@ -1,13 +1,16 @@
 cmake_minimum_required(VERSION 2.8.3)
 project(leap_motion)
 
-find_package(catkin REQUIRED COMPONENTS roscpp rospy roslib std_msgs geometry_msgs message_generation sensor_msgs visualization_msgs camera_info_manager rospack camera_calibration_parsers)
+find_package(catkin REQUIRED COMPONENTS roscpp rospy roslib std_msgs geometry_msgs message_generation sensor_msgs visualization_msgs camera_info_manager rospack camera_calibration_parsers cmake_modules)
 
 find_package(OpenMP)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}")
 
+find_package(Eigen REQUIRED)
+
+add_definitions(${EIGEN_DEFINITIONS})
 
 add_message_files(
     FILES
@@ -45,6 +48,9 @@ install(DIRECTORY
   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
 )
 if(DEFINED ENV{LEAP_SDK})
+
+  include_directories(${EIGEN_INCLUDE_DIRS} ${catkin_INCLUDE_DIRS} include)
+
   add_executable(leap_camera src/leap_camera.cpp)
   target_link_libraries(leap_camera
     ${catkin_LIBRARIES} $ENV{LEAP_SDK}/lib/x64/libLeap.so

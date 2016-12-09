@@ -4,7 +4,9 @@
 #include "ros/ros.h"
 #include "visualization_msgs/MarkerArray.h"
 #include "geometry_msgs/PoseStamped.h"
+#include "std_msgs/Float32.h"
 
+#include <Eigen/Eigen>
 #include <sstream>
 
 
@@ -15,7 +17,13 @@ class HandsListener : public Listener {
   public:
   ros::NodeHandle _node;
   ros::Publisher _pub_marker_array;
-  ros::Publisher _pub_bone_only;
+  
+  ros::Publisher _pub_hand_pose_left;
+  ros::Publisher _pub_hand_pose_right;
+  
+  ros::Publisher _pub_hand_grasp_left;
+  ros::Publisher _pub_hand_grasp_right;
+
   unsigned int seq;
   virtual void onInit(const Controller&);
   virtual void onConnect(const Controller&);
@@ -28,21 +36,30 @@ class HandsListener : public Listener {
   virtual void onServiceConnect(const Controller&);
   virtual void onServiceDisconnect(const Controller&);  
   private:
+  double min_hand_confidence;
 };
 
 void HandsListener::onInit(const Controller& controller) {
   std::cout << "Initialized" << std::endl;
   _pub_marker_array = _node.advertise<visualization_msgs::MarkerArray>("hands", 1);
-  _pub_bone_only = _node.advertise<visualization_msgs::Marker>("hands_line", 1);
+  
+  _pub_hand_pose_left = _node.advertise<geometry_msgs::PoseStamped>("pose_left", 1);
+  _pub_hand_pose_right = _node.advertise<geometry_msgs::PoseStamped>("pose_right", 1);
+  _pub_hand_grasp_left = _node.advertise<std_msgs::Float32>("grasp_left", 1);
+  _pub_hand_grasp_right = _node.advertise<std_msgs::Float32>("grasp_right", 1);
+
+  _node.param("min_hand_confidence", min_hand_confidence, 0.1);
+
 }
 
 
 void HandsListener::onConnect(const Controller& controller) {
   std::cout << "Connected" << std::endl;
-  controller.enableGesture(Gesture::TYPE_CIRCLE);
-  controller.enableGesture(Gesture::TYPE_KEY_TAP);
-  controller.enableGesture(Gesture::TYPE_SCREEN_TAP);
-  controller.enableGesture(Gesture::TYPE_SWIPE);
+  //screw the Gestures
+//  controller.enableGesture(Gesture::TYPE_CIRCLE);
+//  controller.enableGesture(Gesture::TYPE_KEY_TAP);
+//  controller.enableGesture(Gesture::TYPE_SCREEN_TAP);
+//  controller.enableGesture(Gesture::TYPE_SWIPE);
 }
 
 void HandsListener::onDisconnect(const Controller& controller) {
@@ -76,11 +93,18 @@ void HandsListener::onFrame(const Controller& controller) {
   joint_msg.color.a = 0.7f;
   marker_msg.action = joint_msg.action = visualization_msgs::Marker::ADD;
   marker_msg.lifetime = joint_msg.lifetime = ros::Duration(0.1);
+    
+  geometry_msgs::PoseStamped hand_pose;
+  hand_pose.header.frame_id="/leap_optical_frame";
+  hand_pose.header.stamp=ros::Time::now();
 
   HandList hands = frame.hands();
   for (HandList::const_iterator hl = hands.begin(); hl != hands.end(); ++hl) {
+    //Marker stuff for visualization
     // Get the first hand
     const Hand hand = *hl;
+    if(!hand.isValid()) continue;
+    if(hand.confidence() < min_hand_confidence) continue;
     // Get the Arm bone
     // Get fingers
     const FingerList fingers = hand.fingers();
@@ -91,12 +115,12 @@ void HandsListener::onFrame(const Controller& controller) {
         Bone::Type boneType = static_cast<Bone::Type>(b);
         Bone bone = finger.bone(boneType);
 	geometry_msgs::Point point;
-	point.x = -bone.prevJoint().x/1000;
-	point.y = bone.prevJoint().z/1000;
+	point.y = -bone.prevJoint().x/1000;
+	point.x = -bone.prevJoint().z/1000;
 	point.z = bone.prevJoint().y/1000;
 	marker_msg.points.push_back(point);
-	point.x = joint_msg.pose.position.x =  -bone.nextJoint().x/1000;
-	point.y = joint_msg.pose.position.y = bone.nextJoint().z/1000;
+	point.y = joint_msg.pose.position.y =  -bone.nextJoint().x/1000;
+	point.x = joint_msg.pose.position.x = -bone.nextJoint().z/1000;
 	point.z = joint_msg.pose.position.z = bone.nextJoint().y/1000;
 	marker_msg.points.push_back(point);
 	joint_msg.id = joint_msg.id+1;
@@ -107,9 +131,37 @@ void HandsListener::onFrame(const Controller& controller) {
 	marker_msg.colors.push_back(color);
       }
     }
+    marker_array_msg.markers.push_back(marker_msg);
+
+    //serious pose stuff
+    hand_pose.pose.position.y = -hand.palmPosition().x/1e3;
+    hand_pose.pose.position.x = -hand.palmPosition().z/1e3;
+    hand_pose.pose.position.z = hand.palmPosition().y/1e3;
+
+    Eigen::Matrix3d m;
+    m = Eigen::AngleAxisd(-hand.direction().yaw(), Eigen::Vector3d::UnitZ())
+	* Eigen::AngleAxisd(-hand.direction().pitch(), Eigen::Vector3d::UnitY())
+	* Eigen::AngleAxisd(-hand.palmNormal().roll(), Eigen::Vector3d::UnitX());
+    //rotate to expected hand coordinate frame
+    m = m*Eigen::AngleAxisd(M_PI/2, Eigen::Vector3d::UnitX())*Eigen::AngleAxisd(M_PI/2, Eigen::Vector3d::UnitY());
+    Eigen::Quaterniond qd (m);
+    hand_pose.pose.orientation.x = qd.x();
+    hand_pose.pose.orientation.y = qd.y();
+    hand_pose.pose.orientation.z = qd.z();
+    hand_pose.pose.orientation.w = qd.w();
+
+    std_msgs::Float32 grasp;
+    grasp.data = hand.grabStrength();
+    if(hand.isLeft()) {
+	_pub_hand_pose_left.publish(hand_pose); 
+	_pub_hand_grasp_left.publish(grasp);
+    }
+    if(hand.isRight()) {
+	_pub_hand_pose_right.publish(hand_pose); 
+	_pub_hand_grasp_right.publish(grasp);
+    }
   }
   _pub_marker_array.publish(marker_array_msg);
-  _pub_bone_only.publish(marker_msg);
 }
 
 void HandsListener::onFocusGained(const Controller& controller) {
