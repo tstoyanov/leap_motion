@@ -6,6 +6,8 @@
 #include "geometry_msgs/PoseStamped.h"
 #include "std_msgs/Float32.h"
 
+#include <eigen_conversions/eigen_msg.h>
+
 #include <Eigen/Eigen>
 #include <sstream>
 
@@ -37,10 +39,14 @@ class HandsListener : public Listener {
   virtual void onServiceDisconnect(const Controller&);  
   private:
   double min_hand_confidence;
+  Eigen::Affine3d static_transform;
+  std::string frame_name;
+
 };
 
 void HandsListener::onInit(const Controller& controller) {
   std::cout << "Initialized" << std::endl;
+  _node = ros::NodeHandle("~");
   _pub_marker_array = _node.advertise<visualization_msgs::MarkerArray>("hands", 1);
   
   _pub_hand_pose_left = _node.advertise<geometry_msgs::PoseStamped>("pose_left", 1);
@@ -49,7 +55,20 @@ void HandsListener::onInit(const Controller& controller) {
   _pub_hand_grasp_right = _node.advertise<std_msgs::Float32>("grasp_right", 1);
 
   _node.param("min_hand_confidence", min_hand_confidence, 0.1);
+  _node.param<std::string>("frame_name", frame_name, "/leap_optical_frame");
 
+  double x,y,z,roll,pitch,yaw;
+  _node.param("Tx", x, 0.0);
+  _node.param("Ty", y, 0.0);
+  _node.param("Tz", z, 0.0);
+  _node.param("Troll", roll, 0.0);
+  _node.param("Tpitch", pitch, 0.0);
+  _node.param("Tyaw", yaw, 0.0);
+
+  static_transform = Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ())
+	* Eigen::AngleAxisd(pitch, Eigen::Vector3d::UnitY())
+	* Eigen::AngleAxisd(roll, Eigen::Vector3d::UnitX());
+  static_transform.translation() << x,y,z;
 }
 
 
@@ -77,7 +96,7 @@ void HandsListener::onFrame(const Controller& controller) {
   //ROS_INFO("flags = %i", (int) controller.policyFlags());
   visualization_msgs::Marker marker_msg, joint_msg;
   visualization_msgs::MarkerArray marker_array_msg;
-  marker_msg.header.frame_id=joint_msg.header.frame_id="/leap_optical_frame";
+  marker_msg.header.frame_id=joint_msg.header.frame_id="leap_optical_frame";
   marker_msg.header.stamp=joint_msg.header.stamp=ros::Time::now();
   marker_msg.ns="leap_marker";
   joint_msg.ns="joint";
@@ -95,7 +114,7 @@ void HandsListener::onFrame(const Controller& controller) {
   marker_msg.lifetime = joint_msg.lifetime = ros::Duration(0.1);
     
   geometry_msgs::PoseStamped hand_pose;
-  hand_pose.header.frame_id="/leap_optical_frame";
+  hand_pose.header.frame_id=frame_name;
   hand_pose.header.stamp=ros::Time::now();
 
   HandList hands = frame.hands();
@@ -149,6 +168,12 @@ void HandsListener::onFrame(const Controller& controller) {
     hand_pose.pose.orientation.y = qd.y();
     hand_pose.pose.orientation.z = qd.z();
     hand_pose.pose.orientation.w = qd.w();
+
+    Eigen::Affine3d hp;
+    tf::poseMsgToEigen(hand_pose.pose, hp);
+    //hp.setIdentity();
+    hp = static_transform*hp;
+    tf::poseEigenToMsg(hp, hand_pose.pose);
 
     std_msgs::Float32 grasp;
     grasp.data = hand.grabStrength();
