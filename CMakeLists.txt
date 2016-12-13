@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 2.8.3)
 project(leap_motion)
 
-find_package(catkin REQUIRED COMPONENTS roscpp rospy roslib std_msgs geometry_msgs message_generation sensor_msgs visualization_msgs camera_info_manager rospack camera_calibration_parsers cmake_modules eigen_conversions)
+find_package(catkin REQUIRED COMPONENTS roscpp rospy roslib std_msgs geometry_msgs message_generation sensor_msgs visualization_msgs camera_info_manager rospack camera_calibration_parsers cmake_modules eigen_conversions hiqp_msgs)
 
 find_package(OpenMP)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
@@ -22,6 +22,7 @@ generate_messages(
    DEPENDENCIES
    std_msgs
    geometry_msgs
+   hiqp_msgs
    sensor_msgs
    visualization_msgs
 )
@@ -29,7 +30,7 @@ generate_messages(
 catkin_package(
    INCLUDE_DIRS include
 #  LIBRARIES leap_motion
-   CATKIN_DEPENDS roscpp rospy std_msgs message_runtime eigen_conversions
+   CATKIN_DEPENDS roscpp rospy std_msgs message_runtime eigen_conversions hiqp_msgs
 #  DEPENDS system_lib
 )
 

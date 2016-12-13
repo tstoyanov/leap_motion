@@ -4,6 +4,7 @@
 #include "ros/ros.h"
 #include "visualization_msgs/MarkerArray.h"
 #include "geometry_msgs/PoseStamped.h"
+#include "hiqp_msgs/PoseWithName.h"
 #include "std_msgs/Float32.h"
 
 #include <eigen_conversions/eigen_msg.h>
@@ -25,6 +26,8 @@ class HandsListener : public Listener {
   
   ros::Publisher _pub_hand_grasp_left;
   ros::Publisher _pub_hand_grasp_right;
+  
+  ros::Publisher _pub_hand_poses;
 
   unsigned int seq;
   virtual void onInit(const Controller&);
@@ -53,6 +56,8 @@ void HandsListener::onInit(const Controller& controller) {
   _pub_hand_pose_right = _node.advertise<geometry_msgs::PoseStamped>("pose_right", 1);
   _pub_hand_grasp_left = _node.advertise<std_msgs::Float32>("grasp_left", 1);
   _pub_hand_grasp_right = _node.advertise<std_msgs::Float32>("grasp_right", 1);
+  
+  _pub_hand_poses = _node.advertise<hiqp_msgs::PoseWithName>("poses", 5);
 
   _node.param("min_hand_confidence", min_hand_confidence, 0.1);
   _node.param<std::string>("frame_name", frame_name, "/leap_optical_frame");
@@ -177,14 +182,19 @@ void HandsListener::onFrame(const Controller& controller) {
 
     std_msgs::Float32 grasp;
     grasp.data = hand.grabStrength();
+    hiqp_msgs::PoseWithName hand_pose_named;
+    hand_pose_named.pose = hand_pose;
     if(hand.isLeft()) {
+	hand_pose_named.name = "left";
 	_pub_hand_pose_left.publish(hand_pose); 
 	_pub_hand_grasp_left.publish(grasp);
     }
     if(hand.isRight()) {
+	hand_pose_named.name = "right";
 	_pub_hand_pose_right.publish(hand_pose); 
 	_pub_hand_grasp_right.publish(grasp);
     }
+    _pub_hand_poses.publish(hand_pose_named); 
   }
   _pub_marker_array.publish(marker_array_msg);
 }
