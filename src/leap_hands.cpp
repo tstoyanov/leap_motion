@@ -3,11 +3,14 @@
 #include "Leap.h"
 #include "ros/ros.h"
 #include "visualization_msgs/MarkerArray.h"
-#include "geometry_msgs/PoseStamped.h"
-#include "hiqp_msgs/PoseWithName.h"
+//#include "geometry_msgs/PoseStamped.h"
+//#include "hiqp_msgs/PoseWithName.h"
 #include "std_msgs/Float32.h"
 
 #include <eigen_conversions/eigen_msg.h>
+#include <tf_conversions/tf_eigen.h>
+#include <tf/transform_listener.h>
+#include <tf/transform_broadcaster.h>
 
 #include <Eigen/Eigen>
 #include <sstream>
@@ -21,13 +24,11 @@ class HandsListener : public Listener {
   ros::NodeHandle _node;
   ros::Publisher _pub_marker_array;
   
-  ros::Publisher _pub_hand_pose_left;
-  ros::Publisher _pub_hand_pose_right;
-  
   ros::Publisher _pub_hand_grasp_left;
   ros::Publisher _pub_hand_grasp_right;
-  
-  ros::Publisher _pub_hand_poses;
+ 
+  tf::TransformListener listener;
+  tf::TransformBroadcaster br; 
 
   unsigned int seq;
   virtual void onInit(const Controller&);
@@ -43,37 +44,37 @@ class HandsListener : public Listener {
   private:
   double min_hand_confidence;
   Eigen::Affine3d static_transform;
-  std::string frame_name;
+  std::string frame_name, publish_frame_name, left_hand_frame, right_hand_frame;
 
 };
 
 void HandsListener::onInit(const Controller& controller) {
-  std::cout << "Initialized" << std::endl;
   _node = ros::NodeHandle("~");
   _pub_marker_array = _node.advertise<visualization_msgs::MarkerArray>("hands", 1);
   
-  _pub_hand_pose_left = _node.advertise<geometry_msgs::PoseStamped>("pose_left", 1);
-  _pub_hand_pose_right = _node.advertise<geometry_msgs::PoseStamped>("pose_right", 1);
   _pub_hand_grasp_left = _node.advertise<std_msgs::Float32>("grasp_left", 1);
   _pub_hand_grasp_right = _node.advertise<std_msgs::Float32>("grasp_right", 1);
-  
-  _pub_hand_poses = _node.advertise<hiqp_msgs::PoseWithName>("poses", 5);
 
   _node.param("min_hand_confidence", min_hand_confidence, 0.1);
   _node.param<std::string>("frame_name", frame_name, "/leap_optical_frame");
+  _node.param<std::string>("publish_frame_name", publish_frame_name, "/world");
+  _node.param<std::string>("left_frame_name", left_hand_frame, "/leap_left_hand");
+  _node.param<std::string>("right_frame_name", right_hand_frame, "/leap_right_hand");
+  
+  ROS_INFO("Initialized node, waiting for transform");
 
-  double x,y,z,roll,pitch,yaw;
-  _node.param("Tx", x, 0.0);
-  _node.param("Ty", y, 0.0);
-  _node.param("Tz", z, 0.0);
-  _node.param("Troll", roll, 0.0);
-  _node.param("Tpitch", pitch, 0.0);
-  _node.param("Tyaw", yaw, 0.0);
+  tf::StampedTransform transform;
 
-  static_transform = Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ())
-	* Eigen::AngleAxisd(pitch, Eigen::Vector3d::UnitY())
-	* Eigen::AngleAxisd(roll, Eigen::Vector3d::UnitX());
-  static_transform.translation() << x,y,z;
+  try{
+      listener.waitForTransform(publish_frame_name, frame_name, ros::Time(0), ros::Duration(10.0) );
+      listener.lookupTransform(publish_frame_name, frame_name, ros::Time(0), transform);
+      ROS_INFO("Got transform to publish frame");
+  }
+  catch (tf::TransformException ex){
+      ROS_ERROR("%s",ex.what());
+  }
+  
+  tf::transformTFToEigen(transform, static_transform);
 }
 
 
@@ -158,44 +159,32 @@ void HandsListener::onFrame(const Controller& controller) {
     marker_array_msg.markers.push_back(marker_msg);
 
     //serious pose stuff
-    hand_pose.pose.position.y = -hand.palmPosition().x/1e3;
-    hand_pose.pose.position.x = -hand.palmPosition().z/1e3;
-    hand_pose.pose.position.z = hand.palmPosition().y/1e3;
-
-    Eigen::Matrix3d m;
+    Eigen::Affine3d m;
     m = Eigen::AngleAxisd(-hand.direction().yaw(), Eigen::Vector3d::UnitZ())
 	* Eigen::AngleAxisd(-hand.direction().pitch(), Eigen::Vector3d::UnitY())
 	* Eigen::AngleAxisd(-hand.palmNormal().roll(), Eigen::Vector3d::UnitX());
     //rotate to expected hand coordinate frame
     m = m*Eigen::AngleAxisd(M_PI/2, Eigen::Vector3d::UnitX())*Eigen::AngleAxisd(M_PI/2, Eigen::Vector3d::UnitY());
-    Eigen::Quaterniond qd (m);
-    hand_pose.pose.orientation.x = qd.x();
-    hand_pose.pose.orientation.y = qd.y();
-    hand_pose.pose.orientation.z = qd.z();
-    hand_pose.pose.orientation.w = qd.w();
+    //add translation
+    m.translation() <<  -hand.palmPosition().z/1e3,-hand.palmPosition().x/1e3,hand.palmPosition().y/1e3;
 
-    Eigen::Affine3d hp;
-    tf::poseMsgToEigen(hand_pose.pose, hp);
-    //hp.setIdentity();
-    hp = static_transform*hp;
-    tf::poseEigenToMsg(hp, hand_pose.pose);
+    m = static_transform*m;
+
+    tf::Transform transform;
+    tf::poseEigenToTF(m, transform);
 
     std_msgs::Float32 grasp;
     grasp.data = hand.grabStrength();
-    hiqp_msgs::PoseWithName hand_pose_named;
-    hand_pose_named.pose = hand_pose;
     if(hand.isLeft()) {
-	hand_pose_named.name = "left";
-	_pub_hand_pose_left.publish(hand_pose); 
+	br.sendTransform(tf::StampedTransform(transform, ros::Time::now(), publish_frame_name, left_hand_frame));
 	_pub_hand_grasp_left.publish(grasp);
     }
     if(hand.isRight()) {
-	hand_pose_named.name = "right";
-	_pub_hand_pose_right.publish(hand_pose); 
+	br.sendTransform(tf::StampedTransform(transform, ros::Time::now(), publish_frame_name, right_hand_frame));
 	_pub_hand_grasp_right.publish(grasp);
     }
-    _pub_hand_poses.publish(hand_pose_named); 
   }
+
   _pub_marker_array.publish(marker_array_msg);
 }
 

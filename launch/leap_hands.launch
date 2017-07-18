@@ -1,16 +1,11 @@
 <?xml version="1.0"?>
 <launch>
 <node pkg="leap_motion" type="leap_hands" name="leap_hands" output="screen">
-    <param name="frame_name" value="yumi_body" />
-    <param name="Tx" value="0.3" />
-    <param name="Ty" value="0.0" />
-    <param name="Tz" value="0.02" />
-    <param name="Tyaw" value="0.0" />
-    <param name="Tpitch" value="0.0" />
-    <param name="Troll" value="0.0" /> <!-- order is the same as in static tf publisher -->
+    <param name="frame_name" value="/leap_optical_frame" />
+    <param name="publish_frame_name" value="/world" />
 </node>
 
 <node pkg="tf" type="static_transform_publisher" name="leap_link"
-      args="0.30 0.0 0.02 0.0 0.0 0.0 /yumi_body /leap_optical_frame 50" />
+      args="0.30 0.0 0.02 0.0 0.0 0.0 /world /leap_optical_frame 50" />
 
 </launch>
