@@ -42,7 +42,7 @@ class HandsListener : public Listener {
   virtual void onServiceConnect(const Controller&);
   virtual void onServiceDisconnect(const Controller&);  
   private:
-  double min_hand_confidence;
+  double min_hand_confidence, ws_scale;
   Eigen::Affine3d static_transform;
   std::string frame_name, publish_frame_name, left_hand_frame, right_hand_frame;
 
@@ -60,6 +60,7 @@ void HandsListener::onInit(const Controller& controller) {
   _node.param<std::string>("publish_frame_name", publish_frame_name, "/world");
   _node.param<std::string>("left_frame_name", left_hand_frame, "/leap_left_hand");
   _node.param<std::string>("right_frame_name", right_hand_frame, "/leap_right_hand");
+  _node.param("workspace_scale", ws_scale, 1.0);
   
   ROS_INFO("Initialized node, waiting for transform");
 
@@ -167,6 +168,8 @@ void HandsListener::onFrame(const Controller& controller) {
     m = m*Eigen::AngleAxisd(M_PI/2, Eigen::Vector3d::UnitX())*Eigen::AngleAxisd(M_PI/2, Eigen::Vector3d::UnitY());
     //add translation
     m.translation() <<  -hand.palmPosition().z/1e3,-hand.palmPosition().x/1e3,hand.palmPosition().y/1e3;
+
+    m.translation() = ws_scale*m.translation();
 
     m = static_transform*m;
 
