@@ -3,9 +3,10 @@
 #include "Leap.h"
 #include "ros/ros.h"
 #include "visualization_msgs/MarkerArray.h"
-//#include "geometry_msgs/PoseStamped.h"
+#include "geometry_msgs/TransformStamped.h"
 //#include "hiqp_msgs/PoseWithName.h"
 #include "std_msgs/Float32.h"
+#include "tf/tfMessage.h"
 
 #include <eigen_conversions/eigen_msg.h>
 #include <tf_conversions/tf_eigen.h>
@@ -26,6 +27,8 @@ class HandsListener : public Listener {
   
   ros::Publisher _pub_hand_grasp_left;
   ros::Publisher _pub_hand_grasp_right;
+  
+  ros::Publisher _pub_left_tf;
  
   tf::TransformListener listener;
   tf::TransformBroadcaster br; 
@@ -54,6 +57,8 @@ void HandsListener::onInit(const Controller& controller) {
   
   _pub_hand_grasp_left = _node.advertise<std_msgs::Float32>("grasp_left", 1);
   _pub_hand_grasp_right = _node.advertise<std_msgs::Float32>("grasp_right", 1);
+
+  _pub_left_tf = _node.advertise<tf::tfMessage>("left_standalone", 1);
 
   _node.param("min_hand_confidence", min_hand_confidence, 0.1);
   _node.param<std::string>("frame_name", frame_name, "/leap_optical_frame");
@@ -181,6 +186,14 @@ void HandsListener::onFrame(const Controller& controller) {
     if(hand.isLeft()) {
 	br.sendTransform(tf::StampedTransform(transform, ros::Time::now(), publish_frame_name, left_hand_frame));
 	_pub_hand_grasp_left.publish(grasp);
+
+	tf::tfMessage tf_left;
+	geometry_msgs::TransformStamped transform_left;
+	transform_left.header.stamp = ros::Time::now();
+	tf::transformEigenToMsg(m,transform_left.transform);
+	tf_left.transforms.push_back(transform_left);
+
+	_pub_left_tf.publish(tf_left);
     }
     if(hand.isRight()) {
 	br.sendTransform(tf::StampedTransform(transform, ros::Time::now(), publish_frame_name, right_hand_frame));
